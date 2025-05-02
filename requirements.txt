@@ -1,0 +1,17 @@
+# Core
+Django==4.2.0
+gunicorn==21.2.0
+
+# Database
+psycopg2-binary==2.9.9  # For PostgreSQL on Render
+
+# File Handling
+python-magic==0.4.27  # For resume validation (PDF/DOCX)
+Pillow==10.0.0  # For image uploads (staff photos)
+
+# Deployment
+whitenoise==6.6.0  # Static files
+python-dotenv==1.0.0  # Environment variables
+
+# Security
+django-environ==0.11.2  # Secure configs
