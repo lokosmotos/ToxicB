@@ -4,45 +4,138 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Excel Filename QC Tool</title>
-    <link href="{{ url_for('static', filename='css/tailwind.css') }}" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap');
+        
+        body {
+            font-family: 'JetBrains Mono', monospace;
+            background-color: #0f172a;
+            color: #e2e8f0;
+        }
+        
+        .glow {
+            text-shadow: 0 0 8px rgba(96, 165, 250, 0.6);
+        }
+        
+        .neon-border {
+            border: 1px solid #3b82f6;
+            box-shadow: 0 0 10px rgba(59, 130, 246, 0.5);
+        }
+        
+        .audio-control {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 100;
+        }
+    </style>
 </head>
-<body class="bg-gray-100 font-sans">
-    <div class="container mx-auto p-6">
-        <h1 class="text-2xl font-bold mb-4">Excel Filename QC Tool</h1>
-        <p class="mb-4">Upload an Excel file to check for invalid Windows filename characters.</p>
-        <form id="uploadForm" enctype="multipart/form-data">
-            <input type="file" id="fileInput" name="file" accept=".xlsx, .xls" class="mb-4 p-2 border rounded" aria-label="Upload Excel file">
-            <div class="mb-4">
-                <label for="sheetSelect" class="block text-sm font-medium text-gray-700">Select Sheet:</label>
-                <select id="sheetSelect" name="sheet" class="w-full p-2 border rounded" aria-label="Select sheet">
-                    <option value="">Select a sheet</option>
-                </select>
-            </div>
-            <div class="mb-4">
-                <label for="columnSelect" class="block text-sm font-medium text-gray-700">Select Columns to Check:</label>
-                <select id="columnSelect" name="columns" multiple class="w-full p-2 border rounded" size="5" aria-label="Select columns">
-                </select>
-            </div>
-            <button type="button" onclick="checkFilenames()" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600" disabled id="checkButton">Check Filenames</button>
-        </form>
-        <div id="output" class="mt-4 overflow-x-auto"></div>
+<body class="min-h-screen">
+    <!-- Audio Anthem -->
+    <audio id="anthem" loop>
+        <source src="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3" type="audio/mpeg">
+    </audio>
+    
+    <div class="container mx-auto px-4 py-8 max-w-4xl">
+        <!-- Header -->
+        <header class="mb-8 text-center">
+            <h1 class="text-4xl font-bold mb-2 text-blue-400 glow">Excel Filename QC Tool</h1>
+            <p class="text-blue-200">Upload an Excel file to check for invalid Windows filename characters</p>
+        </header>
+        
+        <!-- Main Card -->
+        <div class="bg-slate-800 rounded-xl p-6 neon-border mb-8">
+            <form id="uploadForm" enctype="multipart/form-data" class="space-y-6">
+                <!-- File Upload -->
+                <div class="space-y-2">
+                    <label class="block text-sm font-medium text-blue-300">Excel File</label>
+                    <div class="flex items-center space-x-4">
+                        <label class="flex-1">
+                            <div class="flex items-center justify-center w-full h-12 px-4 transition bg-slate-700 border border-blue-500 rounded-lg cursor-pointer hover:bg-slate-600">
+                                <span id="fileName" class="text-blue-200">Choose file...</span>
+                                <input type="file" id="fileInput" name="file" accept=".xlsx, .xls" class="hidden">
+                            </div>
+                        </label>
+                    </div>
+                </div>
+                
+                <!-- Sheet Selection -->
+                <div class="space-y-2">
+                    <label for="sheetSelect" class="block text-sm font-medium text-blue-300">Select Sheet</label>
+                    <select id="sheetSelect" name="sheet" class="w-full p-3 bg-slate-700 border border-blue-500 rounded-lg text-blue-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        <option value="">Select a sheet</option>
+                    </select>
+                </div>
+                
+                <!-- Column Selection -->
+                <div class="space-y-2">
+                    <label for="columnSelect" class="block text-sm font-medium text-blue-300">Select Columns to Check</label>
+                    <select id="columnSelect" name="columns" multiple class="w-full p-3 bg-slate-700 border border-blue-500 rounded-lg text-blue-100 h-auto min-h-[120px]">
+                    </select>
+                </div>
+                
+                <!-- Action Button -->
+                <button type="button" onclick="checkFilenames()" class="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition-all duration-200 transform hover:scale-[1.02] shadow-lg" disabled id="checkButton">
+                    Check Filenames
+                </button>
+            </form>
+        </div>
+        
+        <!-- Results Section -->
+        <div id="output" class="bg-slate-800 rounded-xl p-6 neon-border transition-all duration-300"></div>
     </div>
-
+    
+    <!-- Audio Control -->
+    <div class="audio-control">
+        <button onclick="toggleAudio()" class="p-3 bg-blue-600 rounded-full shadow-lg hover:bg-blue-700 transition">
+            <svg id="audioIcon" xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072M12 6a7.975 7.975 0 015.657 2.343m0 0a7.975 7.975 0 010 11.314m-11.314 0a7.975 7.975 0 010-11.314m0 0a7.975 7.975 0 015.657-2.343"/>
+            </svg>
+        </button>
+    </div>
+    
     <script>
+        // Audio Control
+        const anthem = document.getElementById('anthem');
+        const audioIcon = document.getElementById('audioIcon');
+        
+        function toggleAudio() {
+            if (anthem.paused) {
+                anthem.play();
+                audioIcon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" clip-rule="evenodd"/>';
+            } else {
+                anthem.pause();
+                audioIcon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072M12 6a7.975 7.975 0 015.657 2.343m0 0a7.975 7.975 0 010 11.314m-11.314 0a7.975 7.975 0 010-11.314m0 0a7.975 7.975 0 015.657-2.343"/>';
+            }
+        }
+        
+        // File Input Display
         const fileInput = document.getElementById('fileInput');
+        const fileName = document.getElementById('fileName');
+        
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length) {
+                fileName.textContent = e.target.files[0].name;
+            } else {
+                fileName.textContent = 'Choose file...';
+            }
+        });
+        
+        // Rest of your existing JavaScript code remains the same
         const sheetSelect = document.getElementById('sheetSelect');
         const columnSelect = document.getElementById('columnSelect');
         const checkButton = document.getElementById('checkButton');
         const outputDiv = document.getElementById('output');
 
         fileInput.addEventListener('change', () => {
-            outputDiv.innerHTML = '<p class="text-yellow-600">Loading sheets...</p>';
+            outputDiv.innerHTML = '<div class="p-4 bg-slate-700 rounded-lg text-blue-300 animate-pulse">Loading sheets...</div>';
             sheetSelect.innerHTML = '<option value="">Select a sheet</option>';
             columnSelect.innerHTML = '';
             checkButton.disabled = true;
 
             if (!fileInput.files.length) {
-                outputDiv.innerHTML = '<p class="text-red-600">Please upload an Excel file.</p>';
+                outputDiv.innerHTML = '<div class="p-4 bg-red-900/50 rounded-lg text-red-300">Please upload an Excel file.</div>';
                 return;
             }
 
@@ -56,16 +149,16 @@
             .then(response => response.json())
             .then(data => {
                 if (data.error) {
-                    outputDiv.innerHTML = `<p class="text-red-600">${data.error}</p>`;
+                    outputDiv.innerHTML = `<div class="p-4 bg-red-900/50 rounded-lg text-red-300">${data.error}</div>`;
                     return;
                 }
                 sheetSelect.innerHTML = '<option value="">Select a sheet</option>' + 
                     data.sheets.map(sheet => `<option value="${sheet}"${sheet === data.default_sheet ? ' selected' : ''}>${sheet}</option>`).join('');
-                outputDiv.innerHTML = '<p class="text-green-600">Select a sheet to load columns.</p>';
-                sheetSelect.dispatchEvent(new Event('change')); // Trigger column load
+                outputDiv.innerHTML = '<div class="p-4 bg-green-900/20 rounded-lg text-green-300">Select a sheet to load columns.</div>';
+                sheetSelect.dispatchEvent(new Event('change'));
             })
             .catch(error => {
-                outputDiv.innerHTML = `<p class="text-red-600">Error: ${error.message}</p>`;
+                outputDiv.innerHTML = `<div class="p-4 bg-red-900/50 rounded-lg text-red-300">Error: ${error.message}</div>`;
             });
         });
 
@@ -73,11 +166,11 @@
             if (!sheetSelect.value) {
                 columnSelect.innerHTML = '';
                 checkButton.disabled = true;
-                outputDiv.innerHTML = '<p class="text-red-600">Please select a sheet.</p>';
+                outputDiv.innerHTML = '<div class="p-4 bg-red-900/50 rounded-lg text-red-300">Please select a sheet.</div>';
                 return;
             }
 
-            outputDiv.innerHTML = '<p class="text-yellow-600">Loading columns...</p>';
+            outputDiv.innerHTML = '<div class="p-4 bg-slate-700 rounded-lg text-blue-300 animate-pulse">Loading columns...</div>';
             const formData = new FormData();
             formData.append('file', fileInput.files[0]);
             formData.append('sheet', sheetSelect.value);
@@ -89,7 +182,7 @@
             .then(response => response.json())
             .then(data => {
                 if (data.error) {
-                    outputDiv.innerHTML = `<p class="text-red-600">${data.error}</p>`;
+                    outputDiv.innerHTML = `<div class="p-4 bg-red-900/50 rounded-lg text-red-300">${data.error}</div>`;
                     return;
                 }
                 columnSelect.innerHTML = data.columns.map(col => `<option value="${col}">${col}</option>`).join('');
@@ -97,18 +190,18 @@
                     Array.from(columnSelect.options).find(opt => opt.value === col).selected = true;
                 });
                 checkButton.disabled = false;
-                outputDiv.innerHTML = `<p class="text-green-600">Columns loaded from "${sheetSelect.value}". Select columns and click "Check Filenames".</p>`;
+                outputDiv.innerHTML = `<div class="p-4 bg-green-900/20 rounded-lg text-green-300">Columns loaded from "${sheetSelect.value}". Select columns and click "Check Filenames".</div>`;
             })
             .catch(error => {
-                outputDiv.innerHTML = `<p class="text-red-600">Error: ${error.message}</p>`;
+                outputDiv.innerHTML = `<div class="p-4 bg-red-900/50 rounded-lg text-red-300">Error: ${error.message}</div>`;
             });
         });
 
         function checkFilenames() {
-            outputDiv.innerHTML = '<p class="text-yellow-600">Processing...</p>';
+            outputDiv.innerHTML = '<div class="p-4 bg-slate-700 rounded-lg text-blue-300 animate-pulse">Processing...</div>';
             const selectedColumns = Array.from(columnSelect.selectedOptions).map(opt => opt.value);
             if (!selectedColumns.length) {
-                outputDiv.innerHTML = '<p class="text-red-600">Please select at least one column.</p>';
+                outputDiv.innerHTML = '<div class="p-4 bg-red-900/50 rounded-lg text-red-300">Please select at least one column.</div>';
                 return;
             }
 
@@ -124,41 +217,45 @@
             .then(response => response.json())
             .then(data => {
                 if (data.error) {
-                    outputDiv.innerHTML = `<p class="text-red-600">${data.error}</p>`;
+                    outputDiv.innerHTML = `<div class="p-4 bg-red-900/50 rounded-lg text-red-300">${data.error}</div>`;
                     return;
                 }
                 if (!data.results.length) {
-                    outputDiv.innerHTML = `<p class="text-green-600">No invalid characters or issues found in selected columns of "${sheetSelect.value}".</p>`;
+                    outputDiv.innerHTML = `<div class="p-4 bg-green-900/20 rounded-lg text-green-300">No issues found in "${sheetSelect.value}".</div>`;
                 } else {
                     outputDiv.innerHTML = `
-                        <table class="min-w-full bg-white border">
-                            <thead>
-                                <tr class="bg-gray-200">
-                                    <th class="py-2 px-4 border">Row</th>
-                                    <th class="py-2 px-4 border">Column</th>
-                                    <th class="py-2 px-4 border">Filename</th>
-                                    <th class="py-2 px-4 border">Issue</th>
-                                    <th class="py-2 px-4 border">Suggested Fix</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${data.results.map(result => `
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-blue-500/30">
+                                <thead class="bg-slate-700">
                                     <tr>
-                                        <td class="py-2 px-4 border">${result.row}</td>
-                                        <td class="py-2 px-4 border">${result.column}</td>
-                                        <td class="py-2 px-4 border">${result.filename}</td>
-                                        <td class="py-2 px-4 border">${result.issue}</td>
-                                        <td class="py-2 px-4 border">${result.suggested}</td>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-blue-300 uppercase tracking-wider">Row</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-blue-300 uppercase tracking-wider">Column</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-blue-300 uppercase tracking-wider">Filename</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-blue-300 uppercase tracking-wider">Issue</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-blue-300 uppercase tracking-wider">Suggested Fix</th>
                                     </tr>
-                                `).join('')}
-                            </tbody>
-                        </table>
-                        <button onclick="downloadCsv()" class="mt-4 bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600">Download Report (CSV)</button>
+                                </thead>
+                                <tbody class="bg-slate-800 divide-y divide-blue-500/10">
+                                    ${data.results.map((result, i) => `
+                                        <tr class="${i % 2 === 0 ? 'bg-slate-800' : 'bg-slate-750'} hover:bg-slate-700">
+                                            <td class="px-4 py-3 whitespace-nowrap text-blue-100">${result.row}</td>
+                                            <td class="px-4 py-3 whitespace-nowrap text-blue-100">${result.column}</td>
+                                            <td class="px-4 py-3 whitespace-nowrap text-blue-100">${result.filename}</td>
+                                            <td class="px-4 py-3 whitespace-nowrap text-red-300">${result.issue}</td>
+                                            <td class="px-4 py-3 whitespace-nowrap text-green-300">${result.suggested}</td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                        <button onclick="downloadCsv()" class="mt-4 w-full py-2 px-4 bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg transition-all duration-200 transform hover:scale-[1.02]">
+                            Download Report (CSV)
+                        </button>
                     `;
                 }
             })
             .catch(error => {
-                outputDiv.innerHTML = `<p class="text-red-600">Error: ${error.message}</p>`;
+                outputDiv.innerHTML = `<div class="p-4 bg-red-900/50 rounded-lg text-red-300">Error: ${error.message}</div>`;
             });
         }
 
@@ -186,7 +283,7 @@
                 URL.revokeObjectURL(url);
             })
             .catch(error => {
-                outputDiv.innerHTML = `<p class="text-red-600">Error downloading CSV: ${error.message}</p>`;
+                outputDiv.innerHTML = `<div class="p-4 bg-red-900/50 rounded-lg text-red-300">Error downloading CSV: ${error.message}</div>`;
             });
         }
     </script>
