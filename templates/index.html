@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Excel Filename QC Tool</title>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap');
         
@@ -29,6 +30,25 @@
             right: 20px;
             z-index: 100;
         }
+        
+        /* Improved table styling with fixed layout */
+        .results-table {
+            width: 100%;
+            table-layout: fixed;
+        }
+        
+        .results-table th, .results-table td {
+            padding: 0.75rem;
+            word-wrap: break-word;
+            vertical-align: top;
+        }
+        
+        /* Column width distribution */
+        .results-table th:nth-child(1), .results-table td:nth-child(1) { width: 8%; }  /* Row */
+        .results-table th:nth-child(2), .results-table td:nth-child(2) { width: 20%; } /* Column */
+        .results-table th:nth-child(3), .results-table td:nth-child(3) { width: 30%; } /* Filename */
+        .results-table th:nth-child(4), .results-table td:nth-child(4) { width: 22%; } /* Issue */
+        .results-table th:nth-child(5), .results-table td:nth-child(5) { width: 20%; } /* Suggested */
     </style>
 </head>
 <body class="min-h-screen">
@@ -37,7 +57,7 @@
         <source src="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3" type="audio/mpeg">
     </audio>
     
-    <div class="container mx-auto px-4 py-8 max-w-4xl">
+    <div class="container mx-auto px-4 py-8 max-w-6xl">
         <!-- Header -->
         <header class="mb-8 text-center">
             <h1 class="text-4xl font-bold mb-2 text-blue-400 glow">Excel Filename QC Tool</h1>
@@ -83,7 +103,7 @@
         </div>
         
         <!-- Results Section -->
-        <div id="output" class="bg-slate-800 rounded-xl p-6 neon-border transition-all duration-300"></div>
+        <div id="output" class="bg-slate-800 rounded-xl p-6 neon-border transition-all duration-300 max-w-full overflow-x-auto"></div>
     </div>
     
     <!-- Audio Control -->
@@ -122,7 +142,7 @@
             }
         });
         
-        // Rest of your existing JavaScript code remains the same
+        // Main application logic
         const sheetSelect = document.getElementById('sheetSelect');
         const columnSelect = document.getElementById('columnSelect');
         const checkButton = document.getElementById('checkButton');
@@ -225,7 +245,7 @@
                 } else {
                     outputDiv.innerHTML = `
                         <div class="overflow-x-auto">
-                            <table class="min-w-full divide-y divide-blue-500/30">
+                            <table class="results-table min-w-full divide-y divide-blue-500/30">
                                 <thead class="bg-slate-700">
                                     <tr>
                                         <th class="px-4 py-3 text-left text-xs font-medium text-blue-300 uppercase tracking-wider">Row</th>
@@ -238,18 +258,18 @@
                                 <tbody class="bg-slate-800 divide-y divide-blue-500/10">
                                     ${data.results.map((result, i) => `
                                         <tr class="${i % 2 === 0 ? 'bg-slate-800' : 'bg-slate-750'} hover:bg-slate-700">
-                                            <td class="px-4 py-3 whitespace-nowrap text-blue-100">${result.row}</td>
-                                            <td class="px-4 py-3 whitespace-nowrap text-blue-100">${result.column}</td>
-                                            <td class="px-4 py-3 whitespace-nowrap text-blue-100">${result.filename}</td>
-                                            <td class="px-4 py-3 whitespace-nowrap text-red-300">${result.issue}</td>
-                                            <td class="px-4 py-3 whitespace-nowrap text-green-300">${result.suggested}</td>
+                                            <td class="px-4 py-3 text-blue-100">${result.row}</td>
+                                            <td class="px-4 py-3 text-blue-100">${result.column}</td>
+                                            <td class="px-4 py-3 text-blue-100">${result.filename}</td>
+                                            <td class="px-4 py-3 text-red-300">${result.issue}</td>
+                                            <td class="px-4 py-3 text-green-300">${result.suggested}</td>
                                         </tr>
                                     `).join('')}
                                 </tbody>
                             </table>
                         </div>
-                        <button onclick="downloadCsv()" class="mt-4 w-full py-2 px-4 bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg transition-all duration-200 transform hover:scale-[1.02]">
-                            Download Report (CSV)
+                        <button onclick="exportToExcel()" class="mt-4 w-full py-2 px-4 bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg transition-all duration-200 transform hover:scale-[1.02]">
+                            Download Report (Excel)
                         </button>
                     `;
                 }
@@ -259,32 +279,25 @@
             });
         }
 
-        function downloadCsv() {
+        function exportToExcel() {
+            // Get all results from the table
             const results = Array.from(document.querySelectorAll('table tbody tr')).map(row => ({
-                row: row.cells[0].textContent,
-                column: row.cells[1].textContent,
-                filename: row.cells[2].textContent,
-                issue: row.cells[3].textContent,
-                suggested: row.cells[4].textContent
+                Row: row.cells[0].textContent,
+                Column: row.cells[1].textContent,
+                Filename: row.cells[2].textContent,
+                Issue: row.cells[3].textContent,
+                'Suggested Fix': row.cells[4].textContent
             }));
-
-            fetch('/download_csv', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ results })
-            })
-            .then(response => response.blob())
-            .then(blob => {
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = 'filename_qc_report.csv';
-                a.click();
-                URL.revokeObjectURL(url);
-            })
-            .catch(error => {
-                outputDiv.innerHTML = `<div class="p-4 bg-red-900/50 rounded-lg text-red-300">Error downloading CSV: ${error.message}</div>`;
-            });
+            
+            // Create a new workbook
+            const wb = XLSX.utils.book_new();
+            const ws = XLSX.utils.json_to_sheet(results);
+            
+            // Add worksheet to workbook
+            XLSX.utils.book_append_sheet(wb, ws, "Filename QC Report");
+            
+            // Generate Excel file and download
+            XLSX.writeFile(wb, 'filename_qc_report.xlsx');
         }
     </script>
 </body>
