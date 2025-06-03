@@ -176,7 +176,7 @@ def download_csv():
             result['issue'],
             result['suggested']
         ])
-    
+
     output.seek(0)
     return send_file(
         io.BytesIO(output.getvalue().encode('utf-8')),
@@ -186,4 +186,6 @@ def download_csv():
     )
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    # For local development only; Render uses gunicorn
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=True)
