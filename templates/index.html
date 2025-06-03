@@ -1,1 +1,30 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Filename Checker</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .results { margin-top: 20px; color: red; }
+    </style>
+</head>
+<body>
+    <h1>Excel Filename Validator</h1>
+    <form method="POST" enctype="multipart/form-data">
+        <label for="file">Upload Excel File (.xls or .xlsx):</label><br>
+        <input type="file" name="file" required><br><br>
+        <button type="submit">Check File</button>
+    </form>
+
+    {% if results %}
+        <div class="results">
+            <h2>Validation Issues:</h2>
+            <ul>
+                {% for issue in results %}
+                    <li>{{ issue }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+    {% endif %}
+</body>
+</html>
 
