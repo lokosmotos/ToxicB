@@ -21,7 +21,7 @@ def index():
 def get_sheets():
     if 'file' not in request.files:
         return jsonify({'error': 'No file uploaded'}), 400
-    file = request.files['file']  # Fixed typo: 'file' to 'file'
+    file = request.files['file']
     if not allowed_file(file.filename):
         return jsonify({'error': 'Invalid file type. Please upload an Excel file (.xlsx, .xls)'}), 400
 
@@ -29,17 +29,18 @@ def get_sheets():
         # Read Excel file
         xl = pd.ExcelFile(file)
         sheets = xl.sheet_names
-        return jsonify({'sheets': sheets, 'default_sheet': ['audio' if 'audio' in [s.lower() for s in sheets] else sheets[0]})
+        # Set default sheet to 'audio' if present (case-insensitive), else first sheet
+        default_sheet = next((s for s in sheets if s.lower() == 'audio'), sheets[0] if sheets else '')
+        return jsonify({'sheets': sheets, 'default_sheet': default_sheet})
     except Exception as e:
         return jsonify({'error': f'Error reading file: {str(e)}'}), 500
 
 @app.route('/get_columns', methods=['POST'])
 def get_columns():
-    if 'file' not in request.files or not request.form.get('sheets'):
+    if 'file' not in request.files or not request.form.get('sheet'):
         return jsonify({'error': 'No file or sheet selected'}), 400
-
     file = request.files['file']
-    sheet = request.form.get('sheet')
+    sheet = request.form['sheet']
     if not allowed_file(file.filename):
         return jsonify({'error': 'Invalid file type'}), 400
 
@@ -48,123 +49,115 @@ def get_columns():
         df = pd.read_excel(file, sheet_name=sheet, header=6, nrows=1)
         columns = df.columns.tolist()
         default_columns = ['BLUEBOX IPAD STRUCTURE', 'BLUEBOX WOW STRUCTURE']
-        preselected = [col for col in default_columns if col in df.columns]:
-            results.append({
-            'file': filename,
-            'row': idx + 8,
-            'columns': suggested
-        })
+        preselected = [col for col in default_columns if col in columns]
         return jsonify({'columns': columns, 'preselected': preselected})
     except Exception as e:
         return jsonify({'error': f'Error reading sheet: {str(e)}'}), 500
 
 @app.route('/check_filenames', methods=['POST'])
 def check_filenames():
+    if 'file' not in request.files or not request.form.get('sheet') or not request.form.get('columns'):
+        return jsonify({'error': 'No file, sheet, or columns selected'}), 400
+    file = request.files['file']
+    sheet = request.form['sheet']
+    columns = request.form.getlist('columns')
+    if not allowed_file(file.filename):
+        return jsonify({'error': 'Invalid file type'}), 400
+
     try:
-        if 'file' not in request.files or not request.form.get('sheet') or not request.form.get('columns'):
-            return jsonify({'error': 'No file, sheet or no columns selected'}), 400
+        # Read data from row 8 (header in row 7, index 6)
+        df = pd.read_excel(file, sheet_name=sheet, header=6, dtype=str)
+        df = df.fillna('')
 
-        file = request.files['file']
-        sheet = request.form.get('sheet')
-        columns = request.form.getlist('columns')
-        if not allowed_file:
-            return jsonify({'error': 'Invalid file type'}), 400
+        # Validation logic
+        invalid_chars = r'[<>:"\\|?*]'
+        reserved_names = ['CON', 'PRN', 'AUX', 'NUL', 'COM1', 'LPT1']
+        max_path_length = 260
+        results = []
+        duplicates = set()
 
+        for idx, row in df.iterrows():
+            for col in columns:
+                filename = str(row.get(col, ''))
+                if filename:
+                    # Check invalid characters
+                    import re
+                    if re.search(invalid_chars, filename):
+                        found_chars = re.findall(invalid_chars, filename)
+                        suggested = re.sub(invalid_chars, '_', filename)
+                        results.append({
+                            'row': idx + 8,  # Adjust for Excel row (header in 7, data from 8)
+                            'column': col,
+                            'filename': filename,
+                            'issue': f'Invalid characters: {", ".join(found_chars)}',
+                            'suggested': suggested
+                        })
 
-        try:
-            # Read data from row 8 (index 6 for header)
-            df = pd.read_excel(file, sheet_name=sheet, header=6, dtype=str)
-            df.fillna('')
+                    # Check path length
+                    if len(filename) > max_path_length:
+                        results.append({
+                            'row': idx + 8,
+                            'column': col,
+                            'filename': filename,
+                            'issue': f'Filename exceeds {max_path_length} characters',
+                            'suggested': filename[:max_path_length-10] + '...'
+                        })
 
-            # Validation logic
-            invalid_chars = r'[<>:"\\|?*]'
-            reserved_names = ['CON', 'PRN', 'AUX', 'NUL', 'COM1', 'LPT1']
-            max_path_length = 260
-            results = []
-            duplicates = set()
+                    # Check reserved names
+                    filename_part = filename.split('/')[-1].split('.')[0]
+                    if filename_part.upper() in reserved_names:
+                        results.append({
+                            'row': idx + 8,
+                            'column': col,
+                            'filename': filename,
+                            'issue': f'Uses reserved name: {filename_part}',
+                            'suggested': f'_{filename_part}_'
+                        })
 
-            for idx, row in df.iterrows():
-                for col in columns:
-                    filename = str(row.get(col, ''))
-                    if filename:
-                        # Check invalid characters
-                        import re
-                        if re.search(invalid_chars, filename):
-                            found_chars = re.findall(invalid_chars, filename)
-                            suggested = re.sub(invalid_chars, '_', filename)
-                            results.append({
-                                'row': idx + 8,
-                                'column': col,
-                                'filename': filename,
-                                'issue': f'Invalid characters: {", ".join(found_chars)}',
-                                'suggested': suggested
-                            })
+                    # Check trailing spaces/periods
+                    if filename.strip() != filename:
+                        results.append({
+                            'row': idx + 8,
+                            'column': col,
+                            'filename': filename,
+                            'issue': 'Contains trailing spaces',
+                            'suggested': filename.strip()
+                        })
+                    if filename.endswith('.'):
+                        results.append({
+                            'row': idx + 8,
+                            'column': col,
+                            'filename': filename,
+                            'issue': 'Ends with a period',
+                            'suggested': filename.rstrip('.')
+                        })
 
-                        # Check path length
-                            if len(filename) > max_path_length:
-                                results.append({
-                                    'row': idx + 8,
-                                    'column': filename,
-                                    'filename': filename,
-                                    'issue': f'Filename exceeds {max_path_length} characters',
-                                    'suggested': filename[:max_path_length-8] + '...'
-                                })
+                    # Check duplicates
+                    lower_filename = filename.lower()
+                    if lower_filename in duplicates:
+                        results.append({
+                            'row': idx + 8,
+                            'column': col,
+                            'filename': filename,
+                            'issue': 'Duplicate filename (case-insensitive)',
+                            'suggested': f'{filename_part}_copy{idx}.{filename.split(".")[-1]}'
+                        })
+                    else:
+                        duplicates.add(lower_filename)
 
-                            # Check reserved names
-                            filename_part = filename.split('/')[-1].split('.')[0]
-                            if filename_part.upper() in reserved_names:
-                                results.append({
-                                    'row': idx + 8,
-                                    'column': col,
-                                    'filename': filename,
-                                    'issue': f'Uses reserved name: {filename_part}',
-                                    'suggested': f'_{filename_part}_'
-                                })
+                    # Check double slashes
+                    if '//' in filename:
+                        results.append({
+                            'row': idx + 8,
+                            'column': col,
+                            'filename': filename,
+                            'issue': 'Contains double slashes',
+                            'suggested': filename.replace('//', '/')
+                        })
 
-                            # Check trailing spaces/periods
-                            if filename.strip() != filename:
-                                results.append({
-                                    'row': idx + 8,
-                                    'column': col,
-                                    'filename': filename,
-                                    'issue': 'Contains trailing spaces',
-                                    'suggested': filename.strip()
-                                })
-                            if filename.endswith('.'):
-                                results.append({
-                                    'row': idx + 8,
-                                    'column': col,
-                                    'filename': filename,
-                                    'issue': 'Ends with a period',
-                                    'suggested': filename.rstrip('.')
-                                })
-
-                            # Check duplicates
-                            lower_filename = filename.lower()
-                            if lower_filename in duplicates:
-                                results.append({
-                                    'row': idx + 8,
-                                    'column': col,
-                                    'filename': filename,
-                                    'issue': 'Duplicate filename (case-insensitive)',
-                                    'suggested': f'{filename_part}_copy{idx}.{filename.split(".")[-1]}'
-                                })
-                            else:
-                                duplicates.add(lower_filename)
-
-                            # Check double slashes
-                            if '//' in filename:
-                                results.append({
-                                    'row': idx + 8,
-                                    'column': col,
-                                    'filename': filename,
-                                    'issue': 'Contains double slashes',
-                                    'suggested': filename.replace('//', '/')
-                                })
-
-            return jsonify({'results': results})
-        except Exception as e:
-            return jsonify({'error': f'Error processing file: {str(e)}'}), 500
+        return jsonify({'results': results})
+    except Exception as e:
+        return jsonify({'error': f'Error processing file: {str(e)}'}), 500
 
 @app.route('/download_csv', methods=['POST'])
 def download_csv():
