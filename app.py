@@ -4,119 +4,188 @@ import io
 import os
 import csv
 from werkzeug.utils import secure_filename
-from datetime import datetime
-import json
 
 app = Flask(__name__)
 
-# Configuration
-app.config['UPLOAD_FOLDER'] = 'uploads'
-app.config['ALLOWED_EXTENSIONS'] = {'xlsx', 'xls'}
-app.config['ANALYTICS_FILE'] = 'usage_analytics.json'
-
-# Ensure upload directory exists
-os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+# Allowed file extensions
+ALLOWED_EXTENSIONS = {'xlsx', 'xls'}
 
 def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
-
-def update_analytics(action, filename=None, sheet=None, issues_found=0):
-    """Track usage statistics for the dashboard"""
-    try:
-        try:
-            with open(app.config['ANALYTICS_FILE'], 'r') as f:
-                data = json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError):
-            data = {
-                'total_checks': 0,
-                'files_processed': 0,
-                'issues_found': 0,
-                'recent_files': [],
-                'daily_stats': {}
-            }
-        
-        today = datetime.now().strftime('%Y-%m-%d')
-        
-        # Update general stats
-        data['total_checks'] += 1
-        if action == 'file_processed':
-            data['files_processed'] += 1
-            data['issues_found'] += issues_found
-            
-            # Add to recent files (limit to last 5)
-            recent = {
-                'filename': filename,
-                'date': datetime.now().strftime('%Y-%m-%d %H:%M'),
-                'sheet': sheet,
-                'issues': issues_found
-            }
-            data['recent_files'].insert(0, recent)
-            data['recent_files'] = data['recent_files'][:5]
-            
-            # Update daily stats
-            if today not in data['daily_stats']:
-                data['daily_stats'][today] = {
-                    'files': 0,
-                    'issues': 0
-                }
-            data['daily_stats'][today]['files'] += 1
-            data['daily_stats'][today]['issues'] += issues_found
-        
-        with open(app.config['ANALYTICS_FILE'], 'w') as f:
-            json.dump(data, f)
-    except Exception as e:
-        print(f"Error updating analytics: {str(e)}")
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 @app.route('/')
 def index():
     return render_template('index.html')
 
-@app.route('/dashboard')
-def dashboard():
-    """Dashboard showing usage statistics"""
+@app.route('/get_sheets', methods=['POST'])
+def get_sheets():
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file uploaded'}), 400
+    file = request.files['file']
+    if not allowed_file(file.filename):
+        return jsonify({'error': 'Invalid file type. Please upload an Excel file (.xlsx, .xls)'}), 400
+
     try:
-        with open(app.config['ANALYTICS_FILE'], 'r') as f:
-            data = json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        data = {
-            'total_checks': 0,
-            'files_processed': 0,
-            'issues_found': 0,
-            'recent_files': [],
-            'daily_stats': {}
-        }
-    
-    # Prepare data for charts
-    dates = sorted(data['daily_stats'].keys())[-7:]  # Show last 7 days
-    files_data = [data['daily_stats'].get(d, {}).get('files', 0) for d in dates]
-    issues_data = [data['daily_stats'].get(d, {}).get('issues', 0) for d in dates]
-    
-    return render_template('dashboard.html', 
-                         total_checks=data['total_checks'],
-                         files_processed=data['files_processed'],
-                         issues_found=data['issues_found'],
-                         recent_files=data['recent_files'],
-                         chart_data={
-                             'dates': dates,
-                             'files': files_data,
-                             'issues': issues_data
-                         })
+        # Read Excel file
+        xl = pd.ExcelFile(file)
+        sheets = xl.sheet_names
+        # Set default sheet to 'audio' if present (case-insensitive), else first sheet
+        default_sheet = next((s for s in sheets if s.lower() == 'audio'), sheets[0] if sheets else '')
+        return jsonify({'sheets': sheets, 'default_sheet': default_sheet})
+    except Exception as e:
+        return jsonify({'error': f'Error reading file: {str(e)}'}), 500
 
-# [Keep all your existing routes: /get_sheets, /get_columns, /check_filenames, /download_csv]
+@app.route('/get_columns', methods=['POST'])
+def get_columns():
+    if 'file' not in request.files or not request.form.get('sheet'):
+        return jsonify({'error': 'No file or sheet selected'}), 400
+    file = request.files['file']
+    sheet = request.form['sheet']
+    if not allowed_file(file.filename):
+        return jsonify({'error': 'Invalid file type'}), 400
 
-# Modify the check_filenames route to update analytics
+    try:
+        # Read headers from row 7 (index 6)
+        df = pd.read_excel(file, sheet_name=sheet, header=6, nrows=1)
+        columns = df.columns.tolist()
+        default_columns = ['BLUEBOX IPAD STRUCTURE', 'BLUEBOX WOW STRUCTURE']
+        preselected = [col for col in default_columns if col in columns]
+        return jsonify({'columns': columns, 'preselected': preselected})
+    except Exception as e:
+        return jsonify({'error': f'Error reading sheet: {str(e)}'}), 500
+
 @app.route('/check_filenames', methods=['POST'])
 def check_filenames():
-    # [Keep all your existing check_filenames code until the end]
-    
-    # Before returning results, update analytics
-    update_analytics('file_processed', 
-                    filename=file.filename,
-                    sheet=sheet,
-                    issues_found=len(results))
-    
-    return jsonify({'results': results})
+    if 'file' not in request.files or not request.form.get('sheet') or not request.form.get('columns'):
+        return jsonify({'error': 'No file, sheet, or columns selected'}), 400
+    file = request.files['file']
+    sheet = request.form['sheet']
+    columns = request.form.getlist('columns')
+    if not allowed_file(file.filename):
+        return jsonify({'error': 'Invalid file type'}), 400
+
+    try:
+        # Read data from row 8 (header in row 7, index 6)
+        df = pd.read_excel(file, sheet_name=sheet, header=6, dtype=str)
+        df = df.fillna('')
+
+        # Validation logic
+        invalid_chars = r'[<>:"\\|?*]'
+        reserved_names = ['CON', 'PRN', 'AUX', 'NUL', 'COM1', 'LPT1']
+        max_path_length = 260
+        results = []
+        duplicates = set()
+
+        for idx, row in df.iterrows():
+            for col in columns:
+                filename = str(row.get(col, ''))
+                if filename:
+                    # Check invalid characters
+                    import re
+                    if re.search(invalid_chars, filename):
+                        found_chars = re.findall(invalid_chars, filename)
+                        suggested = re.sub(invalid_chars, '_', filename)
+                        results.append({
+                            'row': idx + 8,  # Adjust for Excel row (header in 7, data from 8)
+                            'column': col,
+                            'filename': filename,
+                            'issue': f'Invalid characters: {", ".join(found_chars)}',
+                            'suggested': suggested
+                        })
+
+                    # Check path length
+                    if len(filename) > max_path_length:
+                        results.append({
+                            'row': idx + 8,
+                            'column': col,
+                            'filename': filename,
+                            'issue': f'Filename exceeds {max_path_length} characters',
+                            'suggested': filename[:max_path_length-10] + '...'
+                        })
+
+                    # Check reserved names
+                    filename_part = filename.split('/')[-1].split('.')[0]
+                    if filename_part.upper() in reserved_names:
+                        results.append({
+                            'row': idx + 8,
+                            'column': col,
+                            'filename': filename,
+                            'issue': f'Uses reserved name: {filename_part}',
+                            'suggested': f'_{filename_part}_'
+                        })
+
+                    # Check trailing spaces/periods
+                    if filename.strip() != filename:
+                        results.append({
+                            'row': idx + 8,
+                            'column': col,
+                            'filename': filename,
+                            'issue': 'Contains trailing spaces',
+                            'suggested': filename.strip()
+                        })
+                    if filename.endswith('.'):
+                        results.append({
+                            'row': idx + 8,
+                            'column': col,
+                            'filename': filename,
+                            'issue': 'Ends with a period',
+                            'suggested': filename.rstrip('.')
+                        })
+
+                    # Check duplicates
+                    lower_filename = filename.lower()
+                    if lower_filename in duplicates:
+                        results.append({
+                            'row': idx + 8,
+                            'column': col,
+                            'filename': filename,
+                            'issue': 'Duplicate filename (case-insensitive)',
+                            'suggested': f'{filename_part}_copy{idx}.{filename.split(".")[-1]}'
+                        })
+                    else:
+                        duplicates.add(lower_filename)
+
+                    # Check double slashes
+                    if '//' in filename:
+                        results.append({
+                            'row': idx + 8,
+                            'column': col,
+                            'filename': filename,
+                            'issue': 'Contains double slashes',
+                            'suggested': filename.replace('//', '/')
+                        })
+
+        return jsonify({'results': results})
+    except Exception as e:
+        return jsonify({'error': f'Error processing file: {str(e)}'}), 500
+
+@app.route('/download_csv', methods=['POST'])
+def download_csv():
+    results = request.json.get('results', [])
+    if not results:
+        return jsonify({'error': 'No results to download'}), 400
+
+    output = io.StringIO()
+    writer = csv.writer(output, quoting=csv.QUOTE_ALL)
+    writer.writerow(['Row', 'Column', 'Filename', 'Issue', 'Suggested Fix'])
+    for result in results:
+        writer.writerow([
+            result['row'],
+            result['column'],
+            result['filename'],
+            result['issue'],
+            result['suggested']
+        ])
+
+    output.seek(0)
+    return send_file(
+        io.BytesIO(output.getvalue().encode('utf-8')),
+        mimetype='text/csv',
+        as_attachment=True,
+        download_name='filename_qc_report.csv'
+    )
 
 if __name__ == '__main__':
+    # For local development only; Render uses gunicorn
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=True)
