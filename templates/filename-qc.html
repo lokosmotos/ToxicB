@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Excel Filename QC Tool</title>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 font-sans">
+  <div class="container mx-auto p-6">
+    <h1 class="text-2xl font-bold mb-4">Excel Filename QC Tool</h1>
+    <p class="mb-4">Upload an Excel file to check for invalid Windows filename characters.</p>
+
+    <input type="file" id="fileInput" accept=".xlsx, .xls" class="mb-4 p-2 border rounded" aria-label="Upload Excel file">
+    
+    <div class="mb-4">
+      <label for="sheetSelect" class="block text-sm font-medium text-gray-700">Select Sheet:</label>
+      <select id="sheetSelect" class="w-full p-2 border rounded" aria-label="Select sheet"></select>
+    </div>
+
+    <div class="mb-4">
+      <label for="columnSelect" class="block text-sm font-medium text-gray-700">Select Columns to Check:</label>
+      <select id="columnSelect" multiple class="w-full p-2 border rounded" size="5" aria-label="Select filename columns"></select>
+    </div>
+
+    <button onclick="checkFilenames()" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600" disabled id="checkButton">Check Filenames</button>
+    <div id="output" class="mt-4 overflow-x-auto"></div>
+  </div>
+
+  <script>
+    const fileInput = document.getElementById('fileInput');
+    const sheetSelect = document.getElementById('sheetSelect');
+    const columnSelect = document.getElementById('columnSelect');
+    const checkButton = document.getElementById('checkButton');
+    const outputDiv = document.getElementById('output');
+    let currentWorkbook = null;
+    let columnHeaders = [];
+
+    fileInput.addEventListener('change', () => {
+      const file = fileInput.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const data = new Uint8Array(e.target.result);
+          currentWorkbook = XLSX.read(data, { type: 'array' });
+
+          sheetSelect.innerHTML = currentWorkbook.SheetNames.map(name =>
+            `<option value="${name}">${name}</option>`).join('');
+          sheetSelect.disabled = false;
+          outputDiv.innerHTML = '<p class="text-green-600">Select a sheet to load columns.</p>';
+        } catch (err) {
+          outputDiv.innerHTML = `<p class="text-red-600">Error loading file: ${err.message}</p>`;
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    });
+
+    sheetSelect.addEventListener('change', () => {
+      const sheetName = sheetSelect.value;
+      columnSelect.innerHTML = '';
+      checkButton.disabled = true;
+      if (!currentWorkbook || !sheetName) return;
+
+      try {
+        const sheet = currentWorkbook.Sheets[sheetName];
+        const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+        columnHeaders = rows[6] || [];
+
+        if (!columnHeaders.length) {
+          outputDiv.innerHTML = `<p class="text-red-600">No headers found in row 7.</p>`;
+          return;
+        }
+
+        columnSelect.innerHTML = columnHeaders.map(col =>
+          `<option value="${col}">${col}</option>`).join('');
+
+        // Optional pre-select known columns
+        const defaults = ['BLUEBOX IPAD STRUCTURE', 'BLUEBOX WOW STRUCTURE'];
+        Array.from(columnSelect.options).forEach(opt => {
+          if (defaults.includes(opt.value)) opt.selected = true;
+        });
+
+        checkButton.disabled = false;
+        outputDiv.innerHTML = `<p class="text-green-600">Columns loaded. Click "Check Filenames".</p>`;
+      } catch (err) {
+        outputDiv.innerHTML = `<p class="text-red-600">Error loading columns: ${err.message}</p>`;
+      }
+    });
+
+    function checkFilenames() {
+      const selectedSheet = sheetSelect.value;
+      const selectedColumns = Array.from(columnSelect.selectedOptions).map(opt => opt.value);
+      const worksheet = currentWorkbook.Sheets[selectedSheet];
+      if (!worksheet || !selectedColumns.length) {
+        outputDiv.innerHTML = '<p class="text-red-600">Please select a valid sheet and columns.</p>';
+        return;
+      }
+
+      const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: '', header: columnHeaders, range: 7 });
+      const invalidChars = /[<>:"\\|?*]/;
+      const reservedNames = ['CON', 'PRN', 'AUX', 'NUL', 'COM1', 'LPT1'];
+      const maxLength = 260;
+      const seen = new Set();
+      let results = [];
+
+      jsonData.forEach((row, i) => {
+        const rowNum = i + 8;
+        selectedColumns.forEach(col => {
+          const val = row[col];
+          if (typeof val === 'string' && val.trim()) {
+            const original = val;
+            const filename = val.trim();
+            const issues = [];
+
+            if (invalidChars.test(filename)) issues.push('Invalid characters');
+            if (filename.length > maxLength) issues.push(`Exceeds ${maxLength} characters`);
+            if (reservedNames.includes(filename.split(/[\\/]/).pop().split('.')[0].toUpperCase())) issues.push('Reserved name');
+            if (filename.endsWith('.') || filename.endsWith(' ')) issues.push('Ends with space or period');
+            if (filename.includes('//')) issues.push('Double slashes');
+
+            const lower = filename.toLowerCase();
+            if (seen.has(lower)) issues.push('Duplicate filename');
+            else seen.add(lower);
+
+            if (issues.length > 0) {
+              results.push({
+                row: rowNum,
+                column: col,
+                filename: original,
+                issue: issues.join(', '),
+                suggested: filename.replace(invalidChars, '_').substring(0, maxLength)
+              });
+            }
+          }
+        });
+      });
+
+      if (!results.length) {
+        outputDiv.innerHTML = '<p class="text-green-600">No issues found. All filenames are valid.</p>';
+      } else {
+        outputDiv.innerHTML = `
+          <table class="min-w-full bg-white border text-sm">
+            <thead class="bg-gray-200">
+              <tr>
+                <th class="py-2 px-4 border">Row</th>
+                <th class="py-2 px-4 border">Column</th>
+                <th class="py-2 px-4 border">Filename</th>
+                <th class="py-2 px-4 border">Issue</th>
+                <th class="py-2 px-4 border">Suggested Fix</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${results.map(r => `
+                <tr>
+                  <td class="py-1 px-2 border">${r.row}</td>
+                  <td class="py-1 px-2 border">${r.column}</td>
+                  <td class="py-1 px-2 border text-red-700 break-all">${r.filename}</td>
+                  <td class="py-1 px-2 border text-yellow-600">${r.issue}</td>
+                  <td class="py-1 px-2 border text-green-700">${r.suggested}</td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        `;
+      }
+    }
+  </script>
+</body>
+</html>
