@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QC Tool Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap');
+        
+        body {
+            font-family: 'JetBrains Mono', monospace;
+            background-color: #0f172a;
+            color: #e2e8f0;
+        }
+        
+        .stat-card {
+            background-color: #1e293b;
+            border-left: 4px solid #3b82f6;
+        }
+        
+        .recent-file {
+            background-color: #1e293b;
+            transition: all 0.2s;
+        }
+        
+        .recent-file:hover {
+            background-color: #334155;
+        }
+    </style>
+</head>
+<body class="min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <!-- Header -->
+        <header class="mb-8">
+            <h1 class="text-3xl font-bold text-blue-400 mb-2">QC Tool Analytics Dashboard</h1>
+            <div class="flex space-x-4">
+                <a href="/" class="text-blue-300 hover:text-blue-200">Back to QC Tool</a>
+                <span class="text-gray-400">Last updated: {{ datetime.now().strftime('%Y-%m-%d %H:%M') }}</span>
+            </div>
+        </header>
+        
+        <!-- Stats Overview -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            <div class="stat-card rounded-lg p-6 shadow-lg">
+                <h3 class="text-gray-400 text-sm uppercase tracking-wider">Total Checks</h3>
+                <p class="text-3xl font-bold text-blue-300">{{ total_checks }}</p>
+            </div>
+            <div class="stat-card rounded-lg p-6 shadow-lg">
+                <h3 class="text-gray-400 text-sm uppercase tracking-wider">Files Processed</h3>
+                <p class="text-3xl font-bold text-green-300">{{ files_processed }}</p>
+            </div>
+            <div class="stat-card rounded-lg p-6 shadow-lg">
+                <h3 class="text-gray-400 text-sm uppercase tracking-wider">Issues Found</h3>
+                <p class="text-3xl font-bold text-red-300">{{ issues_found }}</p>
+            </div>
+        </div>
+        
+        <!-- Charts -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+            <div class="bg-slate-800 rounded-xl p-6">
+                <h2 class="text-xl font-bold text-blue-300 mb-4">Files Processed Daily</h2>
+                <canvas id="filesChart"></canvas>
+            </div>
+            <div class="bg-slate-800 rounded-xl p-6">
+                <h2 class="text-xl font-bold text-blue-300 mb-4">Issues Found Daily</h2>
+                <canvas id="issuesChart"></canvas>
+            </div>
+        </div>
+        
+        <!-- Recent Files -->
+        <div class="bg-slate-800 rounded-xl p-6 mb-8">
+            <h2 class="text-xl font-bold text-blue-300 mb-4">Recently Processed Files</h2>
+            <div class="space-y-3">
+                {% for file in recent_files %}
+                <div class="recent-file rounded-lg p-4">
+                    <div class="flex justify-between items-center">
+                        <div>
+                            <h3 class="font-medium text-blue-200">{{ file.filename }}</h3>
+                            <p class="text-sm text-gray-400">Sheet: {{ file.sheet }} • {{ file.date }}</p>
+                        </div>
+                        <span class="px-3 py-1 rounded-full text-sm font-medium {{ 'bg-red-900/50 text-red-300' if file.issues > 0 else 'bg-green-900/50 text-green-300' }}">
+                            {{ file.issues }} issue{% if file.issues != 1 %}s{% endif %}
+                        </span>
+                    </div>
+                </div>
+                {% else %}
+                <p class="text-gray-400">No files processed yet</p>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Files Chart
+        const filesCtx = document.getElementById('filesChart').getContext('2d');
+        new Chart(filesCtx, {
+            type: 'bar',
+            data: {
+                labels: {{ chart_data.dates|safe }},
+                datasets: [{
+                    label: 'Files Processed',
+                    data: {{ chart_data.files|safe }},
+                    backgroundColor: 'rgba(59, 130, 246, 0.7)',
+                    borderColor: 'rgba(59, 130, 246, 1)',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: {
+                        display: false
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        grid: {
+                            color: 'rgba(100, 116, 139, 0.2)'
+                        },
+                        ticks: {
+                            color: '#e2e8f0'
+                        }
+                    },
+                    x: {
+                        grid: {
+                            color: 'rgba(100, 116, 139, 0.2)'
+                        },
+                        ticks: {
+                            color: '#e2e8f0'
+                        }
+                    }
+                }
+            }
+        });
+
+        // Issues Chart
+        const issuesCtx = document.getElementById('issuesChart').getContext('2d');
+        new Chart(issuesCtx, {
+            type: 'line',
+            data: {
+                labels: {{ chart_data.dates|safe }},
+                datasets: [{
+                    label: 'Issues Found',
+                    data: {{ chart_data.issues|safe }},
+                    backgroundColor: 'rgba(239, 68, 68, 0.2)',
+                    borderColor: 'rgba(239, 68, 68, 1)',
+                    borderWidth: 2,
+                    tension: 0.3,
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: {
+                        display: false
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        grid: {
+                            color: 'rgba(100, 116, 139, 0.2)'
+                        },
+                        ticks: {
+                            color: '#e2e8f0'
+                        }
+                    },
+                    x: {
+                        grid: {
+                            color: 'rgba(100, 116, 139, 0.2)'
+                        },
+                        ticks: {
+                            color: '#e2e8f0'
+                        }
+                    }
+                }
+            }
+        });
+    </script>
+</body>
+</html>
