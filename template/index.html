@@ -1,33 +1,22 @@
-<!DOCTYPE html>
-<html lang="en">
+<!doctype html>
+<html>
 <head>
-    <meta charset="UTF-8">
-    <title>Excel Filename QC Tool</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <title>Filename Checker</title>
 </head>
-<body class="bg-gray-100 font-sans">
-    <div class="container mx-auto p-6">
-        <h1 class="text-2xl font-bold mb-4">Excel Filename QC Tool</h1>
-        <form method="POST" enctype="multipart/form-data" class="mb-4">
-            <input type="file" name="file" accept=".xlsx,.xls" required class="p-2 border rounded mb-2">
-            <button type="submit" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Check Filenames</button>
-        </form>
+<body>
+    <h1>Upload Excel File</h1>
+    <form action="/" method="POST" enctype="multipart/form-data">
+        <input type="file" name="file" accept=".xls,.xlsx" required>
+        <button type="submit">Upload</button>
+    </form>
 
-        {% if results %}
-            <div class="text-red-600">
-                <p>Issues found:</p>
-                <ul class="list-disc pl-5">
-                    {% for item in results %}
-                        <li>{{ item }}</li>
-                    {% endfor %}
-                </ul>
-            </div>
-        {% else %}
-            {% if request.method == 'POST' %}
-                <p class="text-green-600">No invalid characters or issues found in filenames.</p>
-            {% endif %}
-        {% endif %}
-    </div>
+    {% if results %}
+        <h2>Validation Results</h2>
+        <ul>
+            {% for result in results %}
+                <li>{{ result }}</li>
+            {% endfor %}
+        </ul>
+    {% endif %}
 </body>
 </html>
-
