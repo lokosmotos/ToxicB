@@ -1,69 +1,40 @@
-from flask import Flask, render_template, request, redirect, flash
+from flask import Flask, render_template, request
 import pandas as pd
-import re
-import os
-from werkzeug.utils import secure_filename
+import io
 
 app = Flask(__name__)
-app.secret_key = 'your-secret-key'  # Change this in production
 
-# Upload folder
-UPLOAD_FOLDER = 'uploads'
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-
-@app.route('/', methods=['GET', 'POST'])
+@app.route('/')
 def index():
+    return render_template('index.html')
+
+@app.route('/filename-checker', methods=['GET', 'POST'])
+def filename_checker():
     results = []
     if request.method == 'POST':
-        try:
-            if 'file' not in request.files:
-                flash('No file part in the form.')
-                return redirect(request.url)
+        uploaded_file = request.files['file']
+        if uploaded_file and uploaded_file.filename.endswith(('.xls', '.xlsx')):
+            try:
+                df = pd.read_excel(uploaded_file)
 
-            file = request.files['file']
-            if file.filename == '':
-                flash('No file selected.')
-                return redirect(request.url)
+                if 'Filename' not in df.columns:
+                    results.append({'filename': '', 'status': 'Missing "Filename" column'})
+                else:
+                    for filename in df['Filename']:
+                        if pd.isna(filename):
+                            status = 'Empty filename'
+                        elif not str(filename).endswith(('.xlsx', '.xls')):
+                            status = 'Invalid extension'
+                        elif ' ' in str(filename):
+                            status = 'Contains spaces'
+                        else:
+                            status = 'OK'
+                        results.append({'filename': filename, 'status': status})
+            except Exception as e:
+                results.append({'filename': '', 'status': f'Error: {str(e)}'})
+        else:
+            results.append({'filename': '', 'status': 'Unsupported file type. Upload .xls or .xlsx only.'})
+    return render_template('filename_qc.html', results=results)
 
-            if file and file.filename.endswith(('.xls', '.xlsx')):
-                filename = secure_filename(file.filename)
-                filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-                file.save(filepath)
-
-                df = pd.read_excel(filepath)
-                filename_columns = ['RAVE CENTRIC FILENAME', 'BLUEBOX WOW FILENAME']
-                invalid_chars = re.compile(r'[<>:"\\|?*]')
-                max_path_length = 260
-                reserved_names = ['CON', 'PRN', 'AUX', 'NUL', 'COM1', 'LPT1']
-
-                for idx, row in df.iterrows():
-                    for column in filename_columns:
-                        filename = row.get(column)
-                        if pd.notna(filename) and isinstance(filename, str):
-                            issues = []
-                            if invalid_chars.search(filename):
-                                found = ', '.join(set(invalid_chars.findall(filename)))
-                                issues.append(f"Invalid characters: {found}")
-                            if len(filename) > max_path_length:
-                                issues.append("Exceeds 260 characters.")
-                            if filename.strip() != filename:
-                                issues.append("Has leading/trailing spaces.")
-                            if filename.endswith('.'):
-                                issues.append("Ends with a period.")
-                            name_part = filename.split('/')[-1].split('.')[0]
-                            if name_part.upper() in reserved_names:
-                                issues.append(f"Reserved name: {name_part}")
-                            if issues:
-                                results.append(f"Row {idx + 2}, Column '{column}': {', '.join(issues)}")
-            else:
-                flash('Invalid file type. Only .xls or .xlsx allowed.')
-        except Exception as e:
-            flash(f"Error occurred: {e}")
-
-    return render_template('index.html', results=results)
-
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))  # Required for Render
-    app.run(host="0.0.0.0", port=port)
+if __name__ == '__main__':
+    app.run(debug=True)
