@@ -5,10 +5,25 @@
     <style>
         body { font-family: Arial, sans-serif; padding: 20px; }
         .results { margin-top: 20px; color: red; }
+        .flash-messages { color: red; margin-bottom: 20px; }
     </style>
 </head>
 <body>
     <h1>Excel Filename Validator</h1>
+
+    <!-- Move flash messages inside the body -->
+    {% with messages = get_flashed_messages() %}
+      {% if messages %}
+        <div class="flash-messages">
+          <ul>
+            {% for message in messages %}
+              <li>{{ message }}</li>
+            {% endfor %}
+          </ul>
+        </div>
+      {% endif %}
+    {% endwith %}
+
     <form method="POST" enctype="multipart/form-data">
         <label for="file">Upload Excel File (.xls or .xlsx):</label><br>
         <input type="file" name="file" required><br><br>
@@ -27,4 +42,3 @@
     {% endif %}
 </body>
 </html>
-
