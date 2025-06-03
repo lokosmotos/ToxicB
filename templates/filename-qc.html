@@ -2,30 +2,55 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Excel Filename QC Tool</title>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .disabled-btn { opacity: 0.5; cursor: not-allowed; }
+    .loading::after { content: ' ⏳'; }
+    @media (max-width: 640px) {
+      table { display: block; overflow-x: auto; white-space: nowrap; }
+      th, td { min-width: 100px; }
+    }
+  </style>
 </head>
-<body class="bg-gray-100 font-sans">
+<body class="bg-gray-100 font-sans transition-colors duration-300 dark:bg-gray-900 dark:text-white">
   <div class="container mx-auto p-6">
-    <h1 class="text-2xl font-bold mb-4">Excel Filename QC Tool</h1>
+    <div class="flex justify-between items-center mb-4">
+      <h1 class="text-2xl font-bold">Excel Filename QC Tool</h1>
+      <button id="themeToggle" class="bg-gray-300 dark:bg-gray-700 px-3 py-1 rounded hover:bg-gray-400 dark:hover:bg-gray-600" aria-label="Toggle dark mode">Toggle Dark Mode</button>
+    </div>
     <p class="mb-4">Upload an Excel file to check for invalid Windows filename characters.</p>
-
-    <input type="file" id="fileInput" accept=".xlsx, .xls" class="mb-4 p-2 border rounded" aria-label="Upload Excel file">
-    
     <div class="mb-4">
-      <label for="sheetSelect" class="block text-sm font-medium text-gray-700">Select Sheet:</label>
-      <select id="sheetSelect" class="w-full p-2 border rounded" aria-label="Select sheet"></select>
+      <input type="file" id="fileInput" accept=".xlsx, .xls" class="p-2 border rounded w-full bg-white dark:bg-gray-800 dark:text-white" aria-label="Upload Excel file" />
+      <p id="fileStatus" class="text-sm text-gray-600 dark:text-gray-400 mt-1"></p>
     </div>
 
     <div class="mb-4">
-      <label for="columnSelect" class="block text-sm font-medium text-gray-700">Select Columns to Check:</label>
-      <select id="columnSelect" multiple class="w-full p-2 border rounded" size="5" aria-label="Select filename columns"></select>
+      <label for="sheetSelect" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Select Sheet:</label>
+      <select id="sheetSelect" class="w-full p-2 border rounded bg-white dark:bg-gray-800 dark:text-white" aria-label="Select sheet" disabled></select>
     </div>
 
-    <button onclick="checkFilenames()" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600" disabled id="checkButton">Check Filenames</button>
-    <div id="output" class="mt-4 overflow-x-auto"></div>
+    <div class="mb-4">
+      <label for="columnSelect" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Select Columns to Check:</label>
+      <select id="columnSelect" multiple class="w-full p-2 border rounded bg-white dark:bg-gray-800 dark:text-white" size="5" aria-label="Select filename columns"></select>
+    </div>
+
+    <div class="mb-4 flex items-center space-x-4">
+      <label class="flex items-center text-sm text-gray-700 dark:text-gray-300">
+        <input type="checkbox" id="caseSensitive" class="mr-2" />
+        Case-Sensitive Duplicates
+      </label>
+    </div>
+
+    <div class="flex space-x-4 mb-4">
+      <button onclick="checkFilenames()" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 disabled-btn" disabled id="checkButton">Check Filenames</button>
+      <button onclick="resetForm()" class="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600 disabled-btn" disabled id="resetButton">Reset</button>
+      <button onclick="exportResults()" class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 disabled-btn hidden" id="exportButton">Export Results as Excel</button>
+    </div>
+
+    <div id="output" class="mt-4 overflow-x-auto" role="region" aria-live="polite"></div>
   </div>
 
   <script>
@@ -33,13 +58,48 @@
     const sheetSelect = document.getElementById('sheetSelect');
     const columnSelect = document.getElementById('columnSelect');
     const checkButton = document.getElementById('checkButton');
+    const resetButton = document.getElementById('resetButton');
+    const exportButton = document.getElementById('exportButton');
     const outputDiv = document.getElementById('output');
+    const fileStatus = document.getElementById('fileStatus');
+    const caseSensitive = document.getElementById('caseSensitive');
+    const themeToggle = document.getElementById('themeToggle');
     let currentWorkbook = null;
     let columnHeaders = [];
+    let results = [];
 
+    // Theme toggle
+    themeToggle.addEventListener('click', () => {
+      document.body.classList.toggle('dark');
+      localStorage.setItem('theme', document.body.classList.contains('dark') ? 'dark' : 'light');
+    });
+    if (localStorage.getItem('theme') === 'dark') document.body.classList.add('dark');
+
+    // Escape HTML to prevent XSS
+    function escapeHTML(str) {
+      return String(str).replace(/[&<>"']/g, char => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&apos;'
+      }[char]));
+    }
+
+    // File input handler
     fileInput.addEventListener('change', () => {
       const file = fileInput.files[0];
       if (!file) return;
+
+      if (!['application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'].includes(file.type)) {
+        outputDiv.innerHTML = '<p class="text-red-600 dark:text-red-400">Please upload a valid Excel file (.xlsx or .xls).</p>';
+        return;
+      }
+
+      fileStatus.textContent = `Selected file: ${file.name}`;
+      checkButton.disabled = true;
+      resetButton.disabled = false;
+      outputDiv.innerHTML = '<p class="text-gray-600 dark:text-gray-400">Loading file...</p>';
 
       const reader = new FileReader();
       reader.onload = (e) => {
@@ -47,103 +107,147 @@
           const data = new Uint8Array(e.target.result);
           currentWorkbook = XLSX.read(data, { type: 'array' });
 
+          if (!currentWorkbook.SheetNames.length) {
+            outputDiv.innerHTML = '<p class="text-red-600 dark:text-red-400">No sheets found in the file.</p>';
+            return;
+          }
+
           sheetSelect.innerHTML = currentWorkbook.SheetNames.map(name =>
-            `<option value="${name}">${name}</option>`).join('');
+            `<option value="${name}">${escapeHTML(name)}</option>`).join('');
           sheetSelect.disabled = false;
-          outputDiv.innerHTML = '<p class="text-green-600">Select a sheet to load columns.</p>';
+          outputDiv.innerHTML = '<p class="text-green-600 dark:text-green-400">Select a sheet to load columns.</p>';
         } catch (err) {
-          outputDiv.innerHTML = `<p class="text-red-600">Error loading file: ${err.message}</p>`;
+          outputDiv.innerHTML = `<p class="text-red-600 dark:text-red-400">Error loading file: ${err.message}</p>`;
         }
       };
       reader.readAsArrayBuffer(file);
     });
 
+    // Sheet selection handler
     sheetSelect.addEventListener('change', () => {
       const sheetName = sheetSelect.value;
       columnSelect.innerHTML = '';
       checkButton.disabled = true;
+      exportButton.classList.add('hidden');
       if (!currentWorkbook || !sheetName) return;
 
       try {
         const sheet = currentWorkbook.Sheets[sheetName];
-        const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
-        columnHeaders = rows[6] || [];
-
-        if (!columnHeaders.length) {
-          outputDiv.innerHTML = `<p class="text-red-600">No headers found in row 7.</p>`;
+        const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, blankrows: false });
+        if (rows.length < 7) {
+          outputDiv.innerHTML = `<p class="text-red-600 dark:text-red-400">Sheet is empty or has fewer than 7 rows.</p>`;
           return;
         }
 
-        columnSelect.innerHTML = columnHeaders.map(col =>
-          `<option value="${col}">${col}</option>`).join('');
+        columnHeaders = rows[6] || [];
+        if (!columnHeaders.length) {
+          outputDiv.innerHTML = `<p class="text-red-600 dark:text-red-400">No headers found in row 7.</p>`;
+          return;
+        }
 
-        // Optional pre-select known columns
+        columnHeaders = columnHeaders.map(h => String(h || '')); // Ensure headers are strings
+        columnSelect.innerHTML = columnHeaders.map(col =>
+          `<option value="${col}">${escapeHTML(col)}</option>`).join('');
+
         const defaults = ['BLUEBOX IPAD STRUCTURE', 'BLUEBOX WOW STRUCTURE'];
         Array.from(columnSelect.options).forEach(opt => {
           if (defaults.includes(opt.value)) opt.selected = true;
         });
 
         checkButton.disabled = false;
-        outputDiv.innerHTML = `<p class="text-green-600">Columns loaded. Click "Check Filenames".</p>`;
+        outputDiv.innerHTML = `<p class="text-green-600 dark:text-green-400">Columns loaded. Click "Check Filenames".</p>`;
       } catch (err) {
-        outputDiv.innerHTML = `<p class="text-red-600">Error loading columns: ${err.message}</p>`;
+        outputDiv.innerHTML = `<p class="text-red-600 dark:text-red-400">Error loading columns: ${err.message}</p>`;
       }
     });
 
-    function checkFilenames() {
+    // Reset form
+    function resetForm() {
+      fileInput.value = '';
+      sheetSelect.innerHTML = '';
+      columnSelect.innerHTML = '';
+      outputDiv.innerHTML = '';
+      fileStatus.textContent = '';
+      checkButton.disabled = true;
+      resetButton.disabled = true;
+      exportButton.classList.add('hidden');
+      currentWorkbook = null;
+      columnHeaders = [];
+      results = [];
+      caseSensitive.checked = false;
+    }
+
+    // Check filenames with chunked processing
+    async function checkFilenames() {
       const selectedSheet = sheetSelect.value;
       const selectedColumns = Array.from(columnSelect.selectedOptions).map(opt => opt.value);
       const worksheet = currentWorkbook.Sheets[selectedSheet];
       if (!worksheet || !selectedColumns.length) {
-        outputDiv.innerHTML = '<p class="text-red-600">Please select a valid sheet and columns.</p>';
+        outputDiv.innerHTML = '<p class="text-red-600 dark:text-red-400">Please select a valid sheet and columns.</p>';
         return;
       }
 
+      checkButton.disabled = true;
+      checkButton.classList.add('loading');
+      outputDiv.innerHTML = '<p class="text-gray-600 dark:text-gray-400">Processing...</p>';
+
       const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: '', header: columnHeaders, range: 7 });
-      const invalidChars = /[<>:"\\|?*]/;
-      const reservedNames = ['CON', 'PRN', 'AUX', 'NUL', 'COM1', 'LPT1'];
+      const invalidChars = /[<>:"\\|?*\x00-\x1F]/; // Includes non-printable characters
+      const reservedNames = ['CON', 'PRN', 'AUX', 'NUL', 'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9', 'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9'];
       const maxLength = 260;
       const seen = new Set();
-      let results = [];
+      results = [];
 
-      jsonData.forEach((row, i) => {
-        const rowNum = i + 8;
-        selectedColumns.forEach(col => {
-          const val = row[col];
-          if (typeof val === 'string' && val.trim()) {
-            const original = val;
-            const filename = val.trim();
-            const issues = [];
+      // Process in chunks
+      const chunkSize = 1000;
+      for (let i = 0; i < jsonData.length; i += chunkSize) {
+        const chunk = jsonData.slice(i, i + chunkSize);
+        for (let j = 0; j < chunk.length; j++) {
+          const row = chunk[j];
+          const rowNum = i + j + 8;
+          selectedColumns.forEach(col => {
+            const val = row[col];
+            if (typeof val === 'string' && val.trim()) {
+              const original = val;
+              const filename = val.trim();
+              const issues = [];
 
-            if (invalidChars.test(filename)) issues.push('Invalid characters');
-            if (filename.length > maxLength) issues.push(`Exceeds ${maxLength} characters`);
-            if (reservedNames.includes(filename.split(/[\\/]/).pop().split('.')[0].toUpperCase())) issues.push('Reserved name');
-            if (filename.endsWith('.') || filename.endsWith(' ')) issues.push('Ends with space or period');
-            if (filename.includes('//')) issues.push('Double slashes');
+              if (invalidChars.test(filename)) issues.push(`Invalid characters: ${filename.match(invalidChars).join(', ')}`);
+              if (filename.length > maxLength) issues.push(`Exceeds ${maxLength} characters`);
+              if (reservedNames.includes(filename.split(/[\\/]/).pop().split('.')[0].toUpperCase())) issues.push('Reserved name');
+              if (filename.endsWith('.') || filename.endsWith(' ')) issues.push('Ends with space or period');
+              if (filename.includes('//')) issues.push('Double slashes');
+              if (filename.startsWith(' ')) issues.push('Starts with space');
 
-            const lower = filename.toLowerCase();
-            if (seen.has(lower)) issues.push('Duplicate filename');
-            else seen.add(lower);
+              const checkVal = caseSensitive.checked ? filename : filename.toLowerCase();
+              if (seen.has(checkVal)) issues.push('Duplicate filename');
+              else seen.add(checkVal);
 
-            if (issues.length > 0) {
-              results.push({
-                row: rowNum,
-                column: col,
-                filename: original,
-                issue: issues.join(', '),
-                suggested: filename.replace(invalidChars, '_').substring(0, maxLength)
-              });
+              if (issues.length > 0) {
+                results.push({
+                  row: rowNum,
+                  column: col,
+                  filename: original,
+                  issue: issues.join(', '),
+                  suggested: filename.replace(invalidChars, '_').replace(/^\s+|\s+$/g, '').substring(0, maxLength)
+                });
+              }
             }
-          }
-        });
-      });
+          });
+        }
+        // Yield to browser
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
+
+      checkButton.classList.remove('loading');
+      checkButton.disabled = false;
 
       if (!results.length) {
-        outputDiv.innerHTML = '<p class="text-green-600">No issues found. All filenames are valid.</p>';
+        outputDiv.innerHTML = '<p class="text-green-600 dark:text-green-400">No issues found. All filenames are valid.</p>';
       } else {
         outputDiv.innerHTML = `
-          <table class="min-w-full bg-white border text-sm">
-            <thead class="bg-gray-200">
+          <table class="min-w-full bg-white dark:bg-gray-800 border text-sm" tabindex="0">
+            <thead class="bg-gray-200 dark:bg-gray-700">
               <tr>
                 <th class="py-2 px-4 border">Row</th>
                 <th class="py-2 px-4 border">Column</th>
@@ -155,16 +259,31 @@
             <tbody>
               ${results.map(r => `
                 <tr>
-                  <td class="py-1 px-2 border">${r.row}</td>
-                  <td class="py-1 px-2 border">${r.column}</td>
-                  <td class="py-1 px-2 border text-red-700 break-all">${r.filename}</td>
-                  <td class="py-1 px-2 border text-yellow-600">${r.issue}</td>
-                  <td class="py-1 px-2 border text-green-700">${r.suggested}</td>
+                  <td class="py-2 px-4 border">${r.row}</td>
+                  <td class="py-2 px-4 border">${escapeHTML(r.column)}</td>
+                  <td class="py-2 px-4 border text-red-700 dark:text-red-400 break-all">${escapeHTML(r.filename)}</td>
+                  <td class="py-2 px-4 border text-yellow-600 dark:text-yellow-400">${escapeHTML(r.issue)}</td>
+                  <td class="py-2 px-4 border text-green-700 dark:text-green-400">${escapeHTML(r.suggested)}</td>
                 </tr>`).join('')}
             </tbody>
           </table>
         `;
+        exportButton.classList.remove('hidden');
       }
+    }
+
+    // Export results as Excel
+    function exportResults() {
+      if (!results.length) return;
+
+      const wsData = [
+        ['Row', 'Column', 'Filename', 'Issue', 'Suggested Fix'],
+        ...results.map(r => [r.row, r.column, r.filename, r.issue, r.suggested])
+      ];
+      const ws = XLSX.utils.aoa_to_sheet(wsData);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Results');
+      XLSX.write(wb, 'filename_qc_results.xlsx');
     }
   </script>
 </body>
