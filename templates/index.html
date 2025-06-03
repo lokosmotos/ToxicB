@@ -4,17 +4,191 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Excel Filename QC Tool</title>
-    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="{{ url_for('static', filename='css/tailwind.css') }}" rel="stylesheet">
 </head>
 <body class="bg-gray-100 font-sans">
-    <!-- Your existing HTML/JS here -->
     <div class="container mx-auto p-6">
         <h1 class="text-2xl font-bold mb-4">Excel Filename QC Tool</h1>
-        <!-- Rest of your code -->
+        <p class="mb-4">Upload an Excel file to check for invalid Windows filename characters.</p>
+        <form id="uploadForm" enctype="multipart/form-data">
+            <input type="file" id="fileInput" name="file" accept=".xlsx, .xls" class="mb-4 p-2 border rounded" aria-label="Upload Excel file">
+            <div class="mb-4">
+                <label for="sheetSelect" class="block text-sm font-medium text-gray-700">Select Sheet:</label>
+                <select id="sheetSelect" name="sheet" class="w-full p-2 border rounded" aria-label="Select sheet">
+                    <option value="">Select a sheet</option>
+                </select>
+            </div>
+            <div class="mb-4">
+                <label for="columnSelect" class="block text-sm font-medium text-gray-700">Select Columns to Check:</label>
+                <select id="columnSelect" name="columns" multiple class="w-full p-2 border rounded" size="5" aria-label="Select columns">
+                </select>
+            </div>
+            <button type="button" onclick="checkFilenames()" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600" disabled id="checkButton">Check Filenames</button>
+        </form>
+        <div id="output" class="mt-4 overflow-x-auto"></div>
     </div>
+
     <script>
-        // Your existing JavaScript code
+        const fileInput = document.getElementById('fileInput');
+        const sheetSelect = document.getElementById('sheetSelect');
+        const columnSelect = document.getElementById('columnSelect');
+        const checkButton = document.getElementById('checkButton');
+        const outputDiv = document.getElementById('output');
+
+        fileInput.addEventListener('change', () => {
+            outputDiv.innerHTML = '<p class="text-yellow-600">Loading sheets...</p>';
+            sheetSelect.innerHTML = '<option value="">Select a sheet</option>';
+            columnSelect.innerHTML = '';
+            checkButton.disabled = true;
+
+            if (!fileInput.files.length) {
+                outputDiv.innerHTML = '<p class="text-red-600">Please upload an Excel file.</p>';
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+
+            fetch('/get_sheets', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    outputDiv.innerHTML = `<p class="text-red-600">${data.error}</p>`;
+                    return;
+                }
+                sheetSelect.innerHTML = '<option value="">Select a sheet</option>' + 
+                    data.sheets.map(sheet => `<option value="${sheet}"${sheet === data.default_sheet ? ' selected' : ''}>${sheet}</option>`).join('');
+                outputDiv.innerHTML = '<p class="text-green-600">Select a sheet to load columns.</p>';
+                sheetSelect.dispatchEvent(new Event('change')); // Trigger column load
+            })
+            .catch(error => {
+                outputDiv.innerHTML = `<p class="text-red-600">Error: ${error.message}</p>`;
+            });
+        });
+
+        sheetSelect.addEventListener('change', () => {
+            if (!sheetSelect.value) {
+                columnSelect.innerHTML = '';
+                checkButton.disabled = true;
+                outputDiv.innerHTML = '<p class="text-red-600">Please select a sheet.</p>';
+                return;
+            }
+
+            outputDiv.innerHTML = '<p class="text-yellow-600">Loading columns...</p>';
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+            formData.append('sheet', sheetSelect.value);
+
+            fetch('/get_columns', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    outputDiv.innerHTML = `<p class="text-red-600">${data.error}</p>`;
+                    return;
+                }
+                columnSelect.innerHTML = data.columns.map(col => `<option value="${col}">${col}</option>`).join('');
+                data.preselected.forEach(col => {
+                    Array.from(columnSelect.options).find(opt => opt.value === col).selected = true;
+                });
+                checkButton.disabled = false;
+                outputDiv.innerHTML = `<p class="text-green-600">Columns loaded from "${sheetSelect.value}". Select columns and click "Check Filenames".</p>`;
+            })
+            .catch(error => {
+                outputDiv.innerHTML = `<p class="text-red-600">Error: ${error.message}</p>`;
+            });
+        });
+
+        function checkFilenames() {
+            outputDiv.innerHTML = '<p class="text-yellow-600">Processing...</p>';
+            const selectedColumns = Array.from(columnSelect.selectedOptions).map(opt => opt.value);
+            if (!selectedColumns.length) {
+                outputDiv.innerHTML = '<p class="text-red-600">Please select at least one column.</p>';
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+            formData.append('sheet', sheetSelect.value);
+            selectedColumns.forEach(col => formData.append('columns', col));
+
+            fetch('/check_filenames', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    outputDiv.innerHTML = `<p class="text-red-600">${data.error}</p>`;
+                    return;
+                }
+                if (!data.results.length) {
+                    outputDiv.innerHTML = `<p class="text-green-600">No invalid characters or issues found in selected columns of "${sheetSelect.value}".</p>`;
+                } else {
+                    outputDiv.innerHTML = `
+                        <table class="min-w-full bg-white border">
+                            <thead>
+                                <tr class="bg-gray-200">
+                                    <th class="py-2 px-4 border">Row</th>
+                                    <th class="py-2 px-4 border">Column</th>
+                                    <th class="py-2 px-4 border">Filename</th>
+                                    <th class="py-2 px-4 border">Issue</th>
+                                    <th class="py-2 px-4 border">Suggested Fix</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${data.results.map(result => `
+                                    <tr>
+                                        <td class="py-2 px-4 border">${result.row}</td>
+                                        <td class="py-2 px-4 border">${result.column}</td>
+                                        <td class="py-2 px-4 border">${result.filename}</td>
+                                        <td class="py-2 px-4 border">${result.issue}</td>
+                                        <td class="py-2 px-4 border">${result.suggested}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                        <button onclick="downloadCsv()" class="mt-4 bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600">Download Report (CSV)</button>
+                    `;
+                }
+            })
+            .catch(error => {
+                outputDiv.innerHTML = `<p class="text-red-600">Error: ${error.message}</p>`;
+            });
+        }
+
+        function downloadCsv() {
+            const results = Array.from(document.querySelectorAll('table tbody tr')).map(row => ({
+                row: row.cells[0].textContent,
+                column: row.cells[1].textContent,
+                filename: row.cells[2].textContent,
+                issue: row.cells[3].textContent,
+                suggested: row.cells[4].textContent
+            }));
+
+            fetch('/download_csv', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ results })
+            })
+            .then(response => response.blob())
+            .then(blob => {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'filename_qc_report.csv';
+                a.click();
+                URL.revokeObjectURL(url);
+            })
+            .catch(error => {
+                outputDiv.innerHTML = `<p class="text-red-600">Error downloading CSV: ${error.message}</p>`;
+            });
+        }
     </script>
 </body>
 </html>
